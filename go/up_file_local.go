@@ -27,9 +27,9 @@ import (
 /*
 // TODO
 - recursive directory monitoring, nie dodany jeszcze do `fsnotify`
+- go cache: localhost + container id
 
 - POC:
-- go cache
 - boltdb
 
 */
@@ -46,6 +46,12 @@ var upDir string
 var goBinFile string
 var getEventName string
 var dockerIDvar string
+
+// TODO
+// https://github.com/qor/redirect_back
+// var RedirectBack = redirect_back.New(&redirect_back.Config{
+// 	AllowedExtensions: []string{".txt", ""}
+// })
 
 func handleRequests(wg *sync.WaitGroup) {
 	// myRouter := mux.NewRouter()
@@ -236,6 +242,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	// https://stackoverflow.com/questions/19965795/go-golang-write-log-to-file
 	// https://www.dotnetperls.com/fprint-go
 
+	// maximum allowed payload to 5 megabytes (file size)
 	r.Body = http.MaxBytesReader(w, r.Body, 5*1024*1024)
 	// fmt.Println(io.Copy(ioutil.Discard, r.Body))
 
