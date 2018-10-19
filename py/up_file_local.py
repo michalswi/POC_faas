@@ -13,6 +13,7 @@ from werkzeug import secure_filename
 from datetime import datetime
 import json
 import inotify.adapters
+from functools import wraps
 
 import Queue as queue
 from threading import Event, Thread
@@ -38,14 +39,16 @@ from threading import Event, Thread
 - when app is running and uploadsPY will be removed -> error, it's because of this bug:
 https://github.com/dsoprea/PyInotify/issues/51
 
+- docker sdk instead of popen
 - python cache
+- tests (robot framework)
 
-- watcher, ustawic czas sprawdzanie sciezki
-- jak zainstalowac dodatkowe paczki jesli skrypt tego wymaga -> pyfiles i .whl
-- wystawic HOST_PORT i DOCKER_PORT jako zmienna jesli wrzuce ten plik w kontener
+- install additional packages in users script -> pyfiles i .whl
+- expose HOST_PORT i DOCKER_PORT as a ENV if THIS file will be pare of docker container
+- if in docker, host network or bridge?
 - simple authentication
-- zamiast s3 mozna korzystac z volume(workspace, cinder)
-- nie udalo sie przeslac pliku, co zrobic?
+- instead '-v' use s3, object storage(cinder)
+- sending file failed, what to do?
 """
 
 app = Flask(__name__)
@@ -63,7 +66,8 @@ PROJECT_HOME = os.path.dirname(os.path.realpath(__file__))
 UPLOAD_FOLDER = 'uploadsPY'
 UPLOAD_CATALOG = '{}/{}/'.format(PROJECT_HOME, UPLOAD_FOLDER)
 
-ALLOWED_EXTENSIONS = set(['txt', 'py', 'go'])
+ALLOWED_EXTENSIONS = set(['txt', 'py', ''])
+# ALLOWED_EXTENSIONS = set(['txt', 'py', 'go'])
 
 # http://flask.pocoo.org/docs/1.0/config/
 # prefix to all flask routes, if not setup default is '/'
@@ -72,20 +76,19 @@ app.config['UPLOAD_CATALOG'] = UPLOAD_CATALOG
 # maximum allowed payload to 5 megabytes (file size)
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
 
-# run docker container if new file
+
+# run docker
 def runDocker(fileName, fileType):
-	# import docker
-	# client = docker.from_env()
 	if fileType == 'py':
 		dcid = os.popen("docker run -d -v {0}/{1}:/app/{1} \
 		--env APPNAME={1} \--env PORT={2} -p {3}:{2}  \
 		local/py_faas:0.0.1".format(UPLOAD_CATALOG, fileName, DOCKER_PORT, HOST_PORT))
 		global DOCKER_ID
 		DOCKER_ID = dcid.read()
-		# DOCKER_ID = "123"
 		return DOCKER_ID
-	elif fileType == 'go':
-		print('gogo to be done')
+	# elif fileType == 'go':
+	# 	print('gogo to be done')
+
 
 # monitor UPLOAD_CATALOG directory
 def fire():
@@ -100,11 +103,26 @@ def fire():
 				global GETNEWFILE
 				GETNEWFILE = event[3]
 
+
+# not used
 def create_new_dir(local_dir):
     newpath = local_dir
     if not os.path.exists(newpath):
         os.makedirs(newpath)
     return newpath
+
+
+# get a list of running dockers
+@app.route('/getdockers')
+def apiGetDockers():
+	# https://docs.docker.com/develop/sdk/examples/#list-and-manage-containers
+	# curl -v localhost:5000/getdockers
+	dockerContainer = {}
+	client = docker.from_env()
+	for container in client.containers.list():
+		dockerContainer[container.id] = container.status
+	return json.dumps(dockerContainer)
+
 
 # get a list of uploaded files
 # @app.route('/api/v1/getup/<folder>', methods = ['GET'])
@@ -117,6 +135,7 @@ def apiGetup(folder = None):
 	else:
 		var = os.listdir(UPLOAD_CATALOG)
 		return json.dumps(var)
+
 
 # upload file and determine file type
 # @app.route('/api/v1/up', methods = ['POST'])
@@ -152,35 +171,41 @@ def apiUpload():
 
 		# DETERMINE FILE TYPE
 		name, ext = os.path.splitext(GETNEWFILE)
-		if ext == '.py' and \
-		'python' in os.popen(
-			"file {}/{}".format(UPLOAD_CATALOG, GETNEWFILE)).read().lower():
-			runDocker(GETNEWFILE, 'py')
-			# print("runDocker py..")
-			return msg + "[+] Docker ID: {}\n".format(DOCKER_ID)
-		# elif ext == '.go' and 'c source' in \
-		# os.popen("file {}/{}".format(UPLOAD_CATALOG, event[3])).read().lower():
-		# 	runDocker(event[3], 'go')			
-		return msg
+		if DOCKER_ID == '':
+			if ext == '.py' and \
+			'python' in os.popen(
+				"file {}/{}".format(UPLOAD_CATALOG, GETNEWFILE)).read().lower():
+				runDocker(GETNEWFILE, 'py')
+				return msg + "[+] Docker ID: {}".format(DOCKER_ID)
+			# elif ext == '.go' and 'c source' in \
+			# os.popen("file {}/{}".format(UPLOAD_CATALOG, event[3])).read().lower():
+			# 	runDocker(event[3], 'go')			
+			return msg
+		else:
+			return "[-] Stop the previous docker container, id: {}\n".format(DOCKER_ID)
 
 	else:
 		return "Hey file, where are you?"
+
 
 # stop running container
 # @app.route('/api/v1/stop/<id>', methods = ['GET'])
 @app.route('/stop/<id>', methods = ['GET'])
 def apiStop(id = None):
-	app.logger.info(PROJECT_HOME)
 	# curl localhost:5000/stop/07c28
+	app.logger.info(PROJECT_HOME)
 	if id is None:
 		abort(404)
 	else:
-		# var = os.popen("docker stop {}".format(id)).read()
-		# return "Docker container stopped, id " + var
 		client = docker.from_env()
 		container = client.containers.get("{}".format(id))
 		container.stop()
-		return "Docker container stopped, id: {}\n".format(id)
+
+		global DOCKER_ID
+		DOCKER_ID = ''
+
+		return "[+] Docker container stopped, id: {}\n".format(id)
+
 
 def main():
 	# fire() wymaga zeby ta sciezka istniala wczesniej niz przy apiUpload()
@@ -192,6 +217,7 @@ def main():
 	threads.daemon = True
 	threads.start()
 	app.run(host = '0.0.0.0', port = SERVICE_PORT, debug = False)
+
 
 if __name__ == '__main__':
 	main()

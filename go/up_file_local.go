@@ -26,11 +26,11 @@ import (
 
 /*
 // TODO
-- recursive directory monitoring, nie dodany jeszcze do `fsnotify`
+- recursive directory monitoring, haven't beend added to `fsnotify` yet
 - go cache: localhost + container id
 
 - POC:
-- boltdb
+- boltdb, rocksdb
 
 */
 
@@ -41,6 +41,11 @@ const (
 	HostPort    = "8000"
 	DockerPort  = "1111"
 )
+
+type Dinfo struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
 
 var upDir string
 var goBinFile string
@@ -74,6 +79,7 @@ func handleRequests(wg *sync.WaitGroup) {
 	myRouter.Path("/getup/{folder}").Methods("GET").HandlerFunc(GetFiles)
 	myRouter.Path("/up").Methods("POST").HandlerFunc(UploadFile)
 	myRouter.Path("/stop/{id}").Methods("GET").HandlerFunc(stopDocker)
+	myRouter.Path("/dockers").Methods("GET").HandlerFunc(getRunningDockers)
 
 	fmt.Println("Start..")
 	log.Fatal(http.ListenAndServe(ServicePort, myRouter))
@@ -105,8 +111,6 @@ func runDocker() {
 	reqEnvs1 := fmt.Sprintf("PORT=%s", DockerPort)
 	reqEnvs2 := fmt.Sprintf("APPNAME=%s", goBinFile)
 
-	// go get github.com/docker/go-connections/nat
-	// broken: mv ~/go/src/github.com/docker/docker/vendor/github.com/docker/go-connections/nat /tmp
 	resp, err := cli.ContainerCreate(
 		ctx,
 		&container.Config{
@@ -158,19 +162,33 @@ func makeMainDirectory() {
 
 func TestRoot(w http.ResponseWriter, r *http.Request) {
 	// curl -X GET localhost:5000/api/v1/ | jq
-
-	// wyswietli w konsoli, ale po stronie serwera
-	// fmt.Println("TestTest serwer")
-	// wyswietli w konsoli, ale po stronie klienta
-	// fmt.Fprintf(w, "TestTest klient")
-
-	// wyswietli na stronie string
-	// io.WriteString(w, "TestTest")
-
-	// wyswietli na stronie json
 	w.Header().Set("Content-Type	", "application/json; charset=utf-8")
 	// w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	io.WriteString(w, `{"version":{"number":"0.0.1"}}`)
+}
+
+func getRunningDockers(w http.ResponseWriter, r *http.Request) {
+	// curl localhost:5000/api/v1/dockers
+
+	dckrs := make(map[string]Dinfo)
+	cli, err := client.NewClientWithOpts(client.WithVersion("1.38"))
+	if err != nil {
+		panic(err)
+	}
+	containers, err := cli.ContainerList(context.Background(), types.ContainerListOptions{})
+	if err != nil {
+		panic(err)
+	}
+	for _, container := range containers {
+		// fmt.Println(container.Names) // -> [/naughty_swirles]
+		// fmt.Println(container.State)
+		// fmt.Println(container.ID)
+		// fmt.Println(container.Ports) // -> [{0.0.0.0 80 80 tcp}]
+		dckrs[container.ID] = Dinfo{Name: strings.Join(container.Names, ""), State: container.State}
+	}
+	log.Println("[+] Get running Dockers")
+	log.Println(dckrs)
+	json.NewEncoder(w).Encode(dckrs)
 }
 
 func stopDocker(w http.ResponseWriter, r *http.Request) {
@@ -195,13 +213,13 @@ func stopDocker(w http.ResponseWriter, r *http.Request) {
 	} else {
 		log.Println("[+] Docker container stopped, id: " + dockerID)
 		uploadResponse := fmt.Sprintf("[+] Docker container stopped, id: %s\n", dockerID)
+		dockerIDvar = ""
 		fmt.Fprintf(w, uploadResponse)
 	}
 }
 
 func GetFiles(w http.ResponseWriter, r *http.Request) {
 	// curl -X GET localhost:5000/api/v1/getup/uploadsGO | jq
-
 	// https://gist.github.com/mattes/d13e273314c3b3ade33f
 	// upFolder := "uploadsGO"
 
@@ -306,20 +324,28 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.Contains(string(stdout), "matches") {
-		goBinTemp := strings.Split(getEventName, "/")
-		// fmt.Printf("%+v\n", goBinTemp[len(goBinTemp)-1])
-		goBinFile = goBinTemp[len(goBinTemp)-1]
-		fmt.Printf("[+] Run docker..\n")
-		fmt.Fprintf(w, "[+] Run docker..\n")
-		//runDocker container
-		runDocker()
-		uploadResponse := fmt.Sprintf("[+] Docker ID: %s\n", dockerIDvar)
-		fmt.Fprintf(w, uploadResponse)
+	if dockerIDvar == "" {
+		if strings.Contains(string(stdout), "matches") {
+			goBinTemp := strings.Split(getEventName, "/")
+			// fmt.Printf("%+v\n", goBinTemp[len(goBinTemp)-1])
+			goBinFile = goBinTemp[len(goBinTemp)-1]
+			fmt.Printf("[+] Run docker..\n")
+			fmt.Fprintf(w, "[+] Run docker..\n")
+			//runDocker container
+			runDocker()
+			uploadResponse := fmt.Sprintf("[+] Docker ID: %s\n", dockerIDvar)
+			fmt.Fprintf(w, uploadResponse)
+		} else {
+			ret_var := fmt.Sprintf("[-] It's not GO binary: %s" + goBinFile)
+			log.Println(ret_var)
+			fmt.Fprintf(w, ret_var)
+		}
 	} else {
-		log.Println("[-] It's not GO binary: " + goBinFile)
-		fmt.Fprintf(w, "[-] It's not GO binary: "+goBinFile)
+		ret_var := fmt.Sprintf("[-] Stop the previous docker container, id: %s\n", dockerIDvar)
+		log.Println(ret_var)
+		fmt.Fprintf(w, ret_var)
 	}
+
 }
 
 func FileWatcher(wg *sync.WaitGroup) {
