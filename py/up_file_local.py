@@ -76,154 +76,140 @@ app.config['UPLOAD_CATALOG'] = UPLOAD_CATALOG
 # maximum allowed payload to 5 megabytes (file size)
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
 
-
-# run docker
 def runDocker(fileName, fileType):
-	if fileType == 'py':
-		dcid = os.popen("docker run -d -v {0}/{1}:/app/{1} \
-		--env APPNAME={1} \--env PORT={2} -p {3}:{2}  \
-		local/py_faas:0.0.1".format(UPLOAD_CATALOG, fileName, DOCKER_PORT, HOST_PORT))
-		global DOCKER_ID
-		DOCKER_ID = dcid.read()
-		return DOCKER_ID
-	# elif fileType == 'go':
-	# 	print('gogo to be done')
+    """run docker"""
+    if fileType == 'py':
+        dcid = os.popen("docker run -d -v {0}/{1}:/app/{1} \
+        --env APPNAME={1} \--env PORT={2} -p {3}:{2}  \
+        local/py_faas:0.0.1".format(UPLOAD_CATALOG, fileName, DOCKER_PORT, HOST_PORT))
+        global DOCKER_ID
+        DOCKER_ID = dcid.read()
+        return DOCKER_ID
+    # elif fileType == 'go':
+    # 	print('gogo to be done')
 
-
-# monitor UPLOAD_CATALOG directory
 def fire():
-	# notifier = inotify.adapters.Inotify()
-	# notifier.add_watch(UPLOAD_CATALOG)
-	notifier = inotify.adapters.InotifyTree(PROJECT_HOME)
-	for event in notifier.event_gen():
-		if event is not None:
-			# print(event)      # uncomment to see all events generated
-			if 'IN_CREATE' in event[1]:
-				print("[+] File '{0}' created in '{1}'".format(event[3], event[2]))
-				global GETNEWFILE
-				GETNEWFILE = event[3]
+    """monitor UPLOAD_CATALOG directory"""
+    # notifier = inotify.adapters.Inotify()
+    # notifier.add_watch(UPLOAD_CATALOG)
+    notifier = inotify.adapters.InotifyTree(PROJECT_HOME)
+    for event in notifier.event_gen():
+        if event is not None:
+            # print(event)      # uncomment to see all events generated
+            if 'IN_CREATE' in event[1]:
+                print("[+] File '{0}' created in '{1}'".format(event[3], event[2]))
+                global GETNEWFILE
+                GETNEWFILE = event[3]
 
 
 # not used
-def create_new_dir(local_dir):
-    newpath = local_dir
-    if not os.path.exists(newpath):
-        os.makedirs(newpath)
-    return newpath
+# def create_new_dir(local_dir):
+#     newpath = local_dir
+#     if not os.path.exists(newpath):
+#         os.makedirs(newpath)
+#     return newpath
 
-
-# get a list of running dockers
 @app.route('/getdockers')
 def apiGetDockers():
-	# https://docs.docker.com/develop/sdk/examples/#list-and-manage-containers
-	# curl -v localhost:5000/getdockers
-	dockerContainer = {}
-	client = docker.from_env()
-	for container in client.containers.list():
-		dockerContainer[container.id] = container.status
-	return json.dumps(dockerContainer)
+    """get a list of running dockers"""
+    # https://docs.docker.com/develop/sdk/examples/#list-and-manage-containers
+    # curl -v localhost:5000/getdockers
+    dockerContainer = {}
+    client = docker.from_env()
+    for container in client.containers.list():
+        dockerContainer[container.id] = container.status
+    return json.dumps(dockerContainer)
 
-
-# get a list of uploaded files
 # @app.route('/api/v1/getup/<folder>', methods = ['GET'])
 @app.route('/getup/<folder>', methods = ['GET'])
 def apiGetup(folder = None):
-	# curl -v localhost:5000/getup/uploadsPY
-	app.logger.info(PROJECT_HOME)
-	if folder is None or folder != UPLOAD_FOLDER:
-		abort(404)
-	else:
-		var = os.listdir(UPLOAD_CATALOG)
-		return json.dumps(var)
+    """get a list of uploaded files"""
+    # curl -v localhost:5000/getup/uploadsPY
+    app.logger.info(PROJECT_HOME)
+    if folder is None or folder != UPLOAD_FOLDER:
+        abort(404)
+    else:
+        var = os.listdir(UPLOAD_CATALOG)
+        return json.dumps(var)
 
-
-# upload file and determine file type
 # @app.route('/api/v1/up', methods = ['POST'])
 @app.route('/up', methods = ['POST'])
 def apiUpload():
-	# curl -X POST -F 'file=@x.txt' localhost:5000/up
+    """upload file and determine file type"""
+    # curl -X POST -F 'file=@x.txt' localhost:5000/up
+    app.logger.info(PROJECT_HOME)
+    TIME_ST = datetime.now().strftime("%y%m%d%H%M%S")
+    # gdzie 'file' to pole, moze byc 'image' itp
+    if request.method == 'POST' and request.files['file']:
+        app.logger.info(app.config['UPLOAD_CATALOG'])
 
-	app.logger.info(PROJECT_HOME)
-	TIME_ST = datetime.now().strftime("%y%m%d%H%M%S")
-	# gdzie 'file' to pole, moze byc 'image' itp
-	if request.method == 'POST' and request.files['file']:
-		app.logger.info(app.config['UPLOAD_CATALOG'])
+        files = request.files['file']
+        fileName = secure_filename(files.filename)
 
-		files = request.files['file']
-		fileName = secure_filename(files.filename)
+        # fire() wymaga zeby ta sciezka istniala wczesniej
+        # create_new_dir(app.config['UPLOAD_CATALOG'])
+        
+        saved_path = os.path.join(app.config['UPLOAD_CATALOG'], \
+                                    "{}-".format(TIME_ST) + fileName)
+        
+        app.logger.info("saving {}".format(saved_path))
+        
+        files.save(saved_path)
 
-		# fire() wymaga zeby ta sciezka istniala wczesniej
-		# create_new_dir(app.config['UPLOAD_CATALOG'])
-		
-		saved_path = os.path.join(app.config['UPLOAD_CATALOG'], \
-									"{}-".format(TIME_ST) + fileName)
-		
-		app.logger.info("saving {}".format(saved_path))
-		
-		files.save(saved_path)
+        # display file content
+        # http://flask.pocoo.org/docs/1.0/api/#flask.send_file
+        # as_attachment=True?
+        # return send_from_directory(app.config['UPLOAD_CATALOG'], \
+        # 							"{}-".format(TIME_ST) + fileName)
+        msg = "[+] File uploaded successfully: {}\n".format(fileName)
 
-		# display file content
-		# http://flask.pocoo.org/docs/1.0/api/#flask.send_file
-		# as_attachment=True?
-		# return send_from_directory(app.config['UPLOAD_CATALOG'], \
-		# 							"{}-".format(TIME_ST) + fileName)
-		msg = "[+] File uploaded successfully: {}\n".format(fileName)
+        # DETERMINE FILE TYPE
+        name, ext = os.path.splitext(GETNEWFILE)
+        if DOCKER_ID == '':
+            if ext == '.py' and \
+            'python' in os.popen(
+                "file {}/{}".format(UPLOAD_CATALOG, GETNEWFILE)).read().lower():
+                runDocker(GETNEWFILE, 'py')
+                return msg + "[+] Docker ID: {}".format(DOCKER_ID)
+            # elif ext == '.go' and 'c source' in \
+            # os.popen("file {}/{}".format(UPLOAD_CATALOG, event[3])).read().lower():
+            # 	runDocker(event[3], 'go')			
+            return msg
+        else:
+            return "[-] Stop the previous docker container, id: {}\n".format(DOCKER_ID)
 
-		# DETERMINE FILE TYPE
-		name, ext = os.path.splitext(GETNEWFILE)
-		if DOCKER_ID == '':
-			if ext == '.py' and \
-			'python' in os.popen(
-				"file {}/{}".format(UPLOAD_CATALOG, GETNEWFILE)).read().lower():
-				runDocker(GETNEWFILE, 'py')
-				return msg + "[+] Docker ID: {}".format(DOCKER_ID)
-			# elif ext == '.go' and 'c source' in \
-			# os.popen("file {}/{}".format(UPLOAD_CATALOG, event[3])).read().lower():
-			# 	runDocker(event[3], 'go')			
-			return msg
-		else:
-			return "[-] Stop the previous docker container, id: {}\n".format(DOCKER_ID)
+    else:
+        return "Hey file, where are you?"
 
-	else:
-		return "Hey file, where are you?"
-
-
-# stop running container
 # @app.route('/api/v1/stop/<id>', methods = ['GET'])
 @app.route('/stop/<id>', methods = ['GET'])
 def apiStop(id = None):
-	# curl localhost:5000/stop/07c28
-	app.logger.info(PROJECT_HOME)
-	if id is None:
-		abort(404)
-	else:
-		client = docker.from_env()
-		container = client.containers.get("{}".format(id))
-		container.stop()
+    """stop running container"""
+    # curl localhost:5000/stop/07c28
+    app.logger.info(PROJECT_HOME)
+    if id is None:
+        abort(404)
+    else:
+        client = docker.from_env()
+        container = client.containers.get("{}".format(id))
+        container.stop()
 
-		global DOCKER_ID
-		DOCKER_ID = ''
+        global DOCKER_ID
+        DOCKER_ID = ''
 
-		return "[+] Docker container stopped, id: {}\n".format(id)
-
+        return "[+] Docker container stopped, id: {}\n".format(id)
 
 def main():
-	# fire() wymaga zeby ta sciezka istniala wczesniej niz przy apiUpload()
-	# create_new_dir() zakomentowane
-	if not os.path.exists(UPLOAD_CATALOG):
-		os.makedirs(UPLOAD_CATALOG)
-	q = queue.Queue()
-	threads = Thread(target=fire)
-	threads.daemon = True
-	threads.start()
-	app.run(host = '0.0.0.0', port = SERVICE_PORT, debug = False)
+    # fire() wymaga zeby ta sciezka istniala wczesniej niz przy apiUpload()
+    # create_new_dir() zakomentowane
+    if not os.path.exists(UPLOAD_CATALOG):
+        os.makedirs(UPLOAD_CATALOG)
+    q = queue.Queue()
+    threads = Thread(target=fire)
+    threads.daemon = True
+    threads.start()
+    app.run(host = '0.0.0.0', port = SERVICE_PORT, debug = False)
 
 
 if __name__ == '__main__':
-	main()
-	# try:
-	# 	...
-	# except KeyboardInterrupt:
-	# 	print('\nCtrl+C - Stopping server')
-	# 	sys.exit(1)
-		
+    main()     

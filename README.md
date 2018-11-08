@@ -7,7 +7,7 @@ $ pip install inotify
 $ pip install --user docker
 ```
 
-### GO, to be installed:
+### Golang, to be installed:
 ```sh
 $ go get github.com/kr/pty
 $ go get github.com/gorilla/mux
