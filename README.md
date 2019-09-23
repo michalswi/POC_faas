@@ -17,3 +17,5 @@ $ go get github.com/docker/go-connections/nat
 if broken: 
 $ mv ~/go/src/github.com/docker/docker/vendor/github.com/docker/go-connections/nat /tmp
 ```
+
+### how to use - DOC in progress

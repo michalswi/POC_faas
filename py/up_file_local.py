@@ -41,7 +41,6 @@ https://github.com/dsoprea/PyInotify/issues/51
 
 - docker sdk instead of popen
 - python cache
-- tests (robot framework)
 
 - install additional packages in users script -> pyfiles i .whl
 - expose HOST_PORT i DOCKER_PORT as a ENV if THIS file will be pare of docker container

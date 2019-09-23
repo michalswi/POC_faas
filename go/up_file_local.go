@@ -28,9 +28,7 @@ import (
 // TODO
 - recursive directory monitoring, haven't beend added to `fsnotify` yet
 - go cache: localhost + container id
-
-- POC:
-- boltdb, rocksdb
+- handler for logger
 
 - volumes
 // https://docs.aws.amazon.com/sdk-for-go/api/service/s3/
@@ -69,9 +67,9 @@ func handleRequests(wg *sync.WaitGroup) {
 
 	r := mux.NewRouter()
 
-	// PathPrefix, na poziomie kodu nie trzeba podawac pelnej sciezki, w 'curl' tak
+	logger := log.New(os.Stdout, "faas ", log.LstdFlags|log.Lshortfile)
+
 	myRouter := r.PathPrefix(apiVersion).Subrouter()
-	// myRouter.StrictSlash(true)
 
 	fmt.Printf("%+v\n", myRouter)
 	// &{NotFoundHandler:<nil> MethodNotAllowedHandler:<nil> parent:0xc420112000
@@ -84,8 +82,18 @@ func handleRequests(wg *sync.WaitGroup) {
 	myRouter.Path("/stop/{id}").Methods("GET").HandlerFunc(stopDocker)
 	myRouter.Path("/dockers").Methods("GET").HandlerFunc(getRunningDockers)
 
+	// # todo, GET do localhost:8000
+	// myRouter.Path(/output)
+
 	fmt.Println("Start..")
-	log.Fatal(http.ListenAndServe(ServicePort, myRouter))
+	logger.Println("Server starting..")
+
+	// log.Fatal(http.ListenAndServe(ServicePort, myRouter))
+	err := http.ListenAndServe(ServicePort, myRouter)
+	if err != nil {
+		// log.Fatalf("Start message error: %v", err)
+		logger.Fatalf("Start message error: %v", err)
+	}
 	defer wg.Done()
 }
 
@@ -164,10 +172,13 @@ func makeMainDirectory() {
 }
 
 func TestRoot(w http.ResponseWriter, r *http.Request) {
-	// curl -X GET localhost:5000/api/v1/ | jq
-	w.Header().Set("Content-Type	", "application/json; charset=utf-8")
-	// w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// curl -XGET localhost:5000/api/v1/ | jq
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	io.WriteString(w, `{"version":{"number":"0.0.1"}}`)
+	// w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// w.Write([]byte("Hello in TestRoot"))
+
 }
 
 func getRunningDockers(w http.ResponseWriter, r *http.Request) {
@@ -257,11 +268,6 @@ func GetFiles(w http.ResponseWriter, r *http.Request) {
 
 func UploadFile(w http.ResponseWriter, r *http.Request) {
 	// curl -X POST -F 'file=@x.txt' localhost:5000/api/v1/up
-
-	// TODO:
-	// logging to a file using log. instead of fmt.
-	// https://stackoverflow.com/questions/19965795/go-golang-write-log-to-file
-	// https://www.dotnetperls.com/fprint-go
 
 	// maximum allowed payload to 5 megabytes (file size)
 	r.Body = http.MaxBytesReader(w, r.Body, 5*1024*1024)
