@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-
-	"github.com/gorilla/mux"
 )
 
 var servicePort = getEnv("PORT", "8000")
@@ -26,18 +24,21 @@ func main() {
 	logger := log.New(os.Stdout, "executor ", log.LstdFlags|log.Lshortfile)
 	logger.Println("Server is starting...")
 
-	myRouter := mux.NewRouter()
-	myRouter.Path("/").Methods("GET").HandlerFunc(DispOut)
+	rserver := http.NewServeMux()
 
-	// log.Fatal(http.ListenAndServe(":"+strconv.Itoa(ServicePort), myRouter))
-	logger.Fatal(http.ListenAndServe(":"+servicePort, myRouter))
-}
+	rserver.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		logger.Printf("Request dump: %v", r)
+		stdout, stderr := exec.Command(workDir + appName).Output()
+		if stderr != nil {
+			log.Println("[-] Error in r.FormFile ", stderr)
+			fmt.Fprintf(w, "%s", stderr)
+		}
+		fmt.Fprintf(w, "%s", stdout)
+	})
 
-func DispOut(w http.ResponseWriter, r *http.Request) {
-	stdout, stderr := exec.Command(workDir + appName).Output()
-	if stderr != nil {
-		log.Println("[-] Error in r.FormFile ", stderr)
-		fmt.Fprintf(w, "%s", stderr)
+	if err := http.ListenAndServe(fmt.Sprintf(":%v", servicePort), rserver); err != nil {
+		logger.Fatalf("Could not listen on %s: %v\n", servicePort, err)
 	}
-	fmt.Fprintf(w, "%s", stdout)
+
+	logger.Printf("Server stopped")
 }

@@ -27,20 +27,22 @@ import (
 /*
 // TODO
 - recursive directory monitoring, haven't beend added to `fsnotify` yet
-- go cache: localhost + container id
-- handler for logger
+https://github.com/qor/redirect_back
+var RedirectBack = redirect_back.New(&redirect_back.Config{
+  AllowedExtensions: []string{".txt", ""}
+})
 
 - volumes
-// https://docs.aws.amazon.com/sdk-for-go/api/service/s3/
-// https://github.com/aws/aws-sdk-go
+https://docs.aws.amazon.com/sdk-for-go/api/service/s3/
+https://github.com/aws/aws-sdk-go
 */
 
 const (
 	upFolder    = "uploadsGO"
-	ServicePort = ":5000"
+	servicePort = ":5000"
 	apiVersion  = "/api/v1"
-	HostPort    = "8000"
-	DockerPort  = "1111"
+	hostPort    = "8000"
+	dockerPort  = "1111"
 )
 
 type Dinfo struct {
@@ -53,54 +55,43 @@ var goBinFile string
 var getEventName string
 var dockerIDvar string
 
-// TODO
-// https://github.com/qor/redirect_back
-// var RedirectBack = redirect_back.New(&redirect_back.Config{
-// 	AllowedExtensions: []string{".txt", ""}
-// })
-
 func handleRequests(wg *sync.WaitGroup) {
-	// myRouter := mux.NewRouter()
-	// myRouter.HandleFunc("/emp", returnAllEmployees).Methods("GET")
-	// myRouter.Path("/api/v1/getup/{folder}").Methods("GET").HandlerFunc(GetFiles)
-	// myRouter.Path("/api/v1/up").Methods("POST").HandlerFunc(UploadFile)
+	logger := log.New(os.Stdout, "faas ", log.LstdFlags|log.Lshortfile)
+	logger.Println("Server is starting...")
 
 	r := mux.NewRouter()
-
-	logger := log.New(os.Stdout, "faas ", log.LstdFlags|log.Lshortfile)
-
 	myRouter := r.PathPrefix(apiVersion).Subrouter()
 
-	fmt.Printf("%+v\n", myRouter)
-	// &{NotFoundHandler:<nil> MethodNotAllowedHandler:<nil> parent:0xc420112000
-	// routes:[] namedRoutes:map[] strictSlash:false skipClean:false KeepContext:false
-	// useEncodedPath:false}
-
-	myRouter.Path("/").HandlerFunc(TestRoot)
-	myRouter.Path("/getup/{folder}").Methods("GET").HandlerFunc(GetFiles)
-	myRouter.Path("/up").Methods("POST").HandlerFunc(UploadFile)
+	myRouter.Path("/").HandlerFunc(testRoot)
+	myRouter.Path("/getup/{folder}").Methods("GET").HandlerFunc(getFiles)
+	myRouter.Path("/up").Methods("POST").HandlerFunc(uploadFile)
 	myRouter.Path("/stop/{id}").Methods("GET").HandlerFunc(stopDocker)
 	myRouter.Path("/dockers").Methods("GET").HandlerFunc(getRunningDockers)
+	myRouter.Path("/getout").Methods("GET").HandlerFunc(getOutput)
 
-	// # todo, GET do localhost:8000
-	// myRouter.Path(/output)
-
-	fmt.Println("Start..")
-	logger.Println("Server starting..")
-
-	// log.Fatal(http.ListenAndServe(ServicePort, myRouter))
-	err := http.ListenAndServe(ServicePort, myRouter)
+	err := http.ListenAndServe(servicePort, myRouter)
 	if err != nil {
-		// log.Fatalf("Start message error: %v", err)
 		logger.Fatalf("Start message error: %v", err)
 	}
 	defer wg.Done()
 }
 
-func runDocker() {
-	// https://docs.docker.com/develop/sdk/examples/#run-a-container
-	// https://github.com/moby/moby/blob/master/api/types/container/config.go
+// curl localhost:5000/api/v1/getout
+func getOutput(w http.ResponseWriter, r *http.Request) {
+	url := fmt.Sprintf("http://localhost:%s", hostPort)
+	res, err := http.Get(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		log.Fatalf("[-] Status code error: %d %s", res.StatusCode, res.Status)
+	}
+	body, _ := ioutil.ReadAll(res.Body)
+	fmt.Fprintf(w, string(body))
+}
 
+func runDocker() {
 	ctx := context.Background()
 	// take the latest api version ($ docker version)
 	// cli, err := client.NewEnvClient()
@@ -117,9 +108,9 @@ func runDocker() {
 	// }
 	// io.Copy(os.Stdout, out)
 
-	portToExpose := fmt.Sprintf("%s/tcp", DockerPort)
-	// portHost := fmt.Sprintf("%s/tcp", HostPort)
-	reqEnvs1 := fmt.Sprintf("PORT=%s", DockerPort)
+	portToExpose := fmt.Sprintf("%s/tcp", dockerPort)
+	// portHost := fmt.Sprintf("%s/tcp", hostPort)
+	reqEnvs1 := fmt.Sprintf("PORT=%s", dockerPort)
 	reqEnvs2 := fmt.Sprintf("APPNAME=%s", goBinFile)
 
 	resp, err := cli.ContainerCreate(
@@ -141,7 +132,7 @@ func runDocker() {
 			},
 			PortBindings: nat.PortMap{
 				nat.Port(portToExpose): []nat.PortBinding{
-					{HostIP: "0.0.0.0", HostPort: HostPort},
+					{HostIP: "0.0.0.0", HostPort: hostPort},
 				},
 			},
 		},
@@ -167,23 +158,20 @@ func makeMainDirectory() {
 	if err := os.MkdirAll(upDir+"/"+upFolder, os.ModePerm); err != nil {
 		log.Println("[-] Unable to create the directory. - " + err.Error())
 		os.Exit(1)
-		// panic("[-] Unable to create the directory. - " + err.Error())
 	}
 }
 
-func TestRoot(w http.ResponseWriter, r *http.Request) {
-	// curl -XGET localhost:5000/api/v1/ | jq
-
+// curl -XGET localhost:5000/api/v1/ | jq
+func testRoot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	io.WriteString(w, `{"version":{"number":"0.0.1"}}`)
 	// w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// w.Write([]byte("Hello in TestRoot"))
+	// w.Write([]byte("Hello in testRoot"))
 
 }
 
+// curl localhost:5000/api/v1/dockers
 func getRunningDockers(w http.ResponseWriter, r *http.Request) {
-	// curl localhost:5000/api/v1/dockers
-
 	dckrs := make(map[string]Dinfo)
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.38"))
 	if err != nil {
@@ -205,9 +193,8 @@ func getRunningDockers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(dckrs)
 }
 
+// curl -v localhost:5000/api/v1/stop/<id>
 func stopDocker(w http.ResponseWriter, r *http.Request) {
-	// curl -v localhost:5000/api/v1/stop/<id>
-
 	params := mux.Vars(r)
 	dockerID := params["id"]
 
@@ -232,43 +219,28 @@ func stopDocker(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetFiles(w http.ResponseWriter, r *http.Request) {
-	// curl -X GET localhost:5000/api/v1/getup/uploadsGO | jq
-	// https://gist.github.com/mattes/d13e273314c3b3ade33f
-	// upFolder := "uploadsGO"
-
-	// upDir, err := os.Getwd()
-	// if err != nil {
-	// 	log.Println("[-] Unable to get the realpath. - " + err.Error())
-	// }
-
+// curl -X GET localhost:5000/api/v1/getup/uploadsGO | jq
+func getFiles(w http.ResponseWriter, r *http.Request) {
 	var keys []string
-
 	params := mux.Vars(r)
-
 	if params["folder"] == upFolder {
 		// list directory items
 		files, err := ioutil.ReadDir(upDir + "/" + upFolder)
 		if err != nil {
-			// log.Fatal(err)
-			log.Println("[-] Unable to get the directory. - " + err.Error())
+			log.Printf("[-] Unable to get the directory. - \n" + err.Error())
 		}
 		for _, f := range files {
-			// fmt.Println(f.Name())
 			keys = append(keys, f.Name())
 		}
 		fmt.Println(keys)
-		// return list, w - ResponseWriter
 		json.NewEncoder(w).Encode(keys)
 	} else {
-		log.Println("[-] Missing or wrong directory.")
+		log.Printf("[-] Missing or wrong directory.\n")
 	}
-
 }
 
-func UploadFile(w http.ResponseWriter, r *http.Request) {
-	// curl -X POST -F 'file=@x.txt' localhost:5000/api/v1/up
-
+// curl -X POST -F 'file=@x.txt' localhost:5000/api/v1/up
+func uploadFile(w http.ResponseWriter, r *http.Request) {
 	// maximum allowed payload to 5 megabytes (file size)
 	r.Body = http.MaxBytesReader(w, r.Body, 5*1024*1024)
 	// fmt.Println(io.Copy(ioutil.Discard, r.Body))
@@ -283,26 +255,10 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	t := time.Now()
-	// upFolder := "/uploadsGO"
-	// upDir := "/tmp/uploadsGO"
-	// upDir, err := os.Getwd()
-	// if err != nil {
-	// 	log.Println("[-] Unable to get the realpath. - " + err.Error())
-	// }
 
-	// directory creation moved to makeMainDirectory()
-	// by default, os.ModePerm = 0777
-	// if err := os.MkdirAll(upDir+"/"+upFolder, os.ModePerm); err != nil {
-	// 	log.Println("[-] Unable to create the directory. - " + err.Error())
-	// 	// panic("[-] Unable to create the directory. - " + err.Error())
-	// 	w.WriteHeader(http.StatusInternalServerError)
-	// }
-
-	// out, err := os.Create(filepath.Join(upDir, "uploaded-"+header.Filename))
 	out, err := os.Create(filepath.Join(upDir+"/"+upFolder, t.Format("20060102150405-")+header.Filename))
 	if err != nil {
-		log.Println("[-] Unable to create the file for writing. Check your write access privilege.", err)
-		// fmt.Fprintf(w, "[-] Unable to create the file for writing. Check your write access privilege.", err)
+		log.Printf("[-] Unable to create the file for writing. Check your write access privilege.\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 	// change permission to uploaded file(if not error when executing binary)
@@ -317,19 +273,15 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// log.Println("[+] File uploaded successfully: uploaded-", header.Filename)
 	uploadFileFormat := t.Format("20060102150405-") + header.Filename
 	log.Println("[+] File uploaded successfully:", uploadFileFormat)
 	uploadResponse := fmt.Sprintf("[+] File uploaded successfully: %s\n", uploadFileFormat)
 	fmt.Fprintf(w, uploadResponse)
 
-	// VERIFY IF GO BINARY
-	// https://www.socketloop.com/tutorials/how-to-tell-if-a-binary-executable-file-or-web-application-is-built-with-golang
-	// cat <binary> | grep Go
-	// strings -20 <binary> | grep Go
 	stdout, stderr := exec.Command("grep", "Go", getEventName).Output()
 	if stderr != nil {
-		log.Println("[-] Some internal error", stderr)
+		log.Println("[-] Verify your uploaded file", stderr)
+		fmt.Fprintf(w, "[-] Verify your uploaded file\n")
 		return
 	}
 
@@ -340,6 +292,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 			goBinFile = goBinTemp[len(goBinTemp)-1]
 			fmt.Printf("[+] Run docker..\n")
 			fmt.Fprintf(w, "[+] Run docker..\n")
+
 			//runDocker container
 			runDocker()
 			uploadResponse := fmt.Sprintf("[+] Docker ID: %s\n", dockerIDvar)
@@ -354,12 +307,10 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		log.Println(ret_var)
 		fmt.Fprintf(w, ret_var)
 	}
-
 }
 
 func FileWatcher(wg *sync.WaitGroup) {
 	// https://github.com/fsnotify/fsnotify/blob/master/example_test.go
-
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatal(err)
