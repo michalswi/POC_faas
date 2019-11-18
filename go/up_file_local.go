@@ -97,7 +97,7 @@ func runDocker() {
 	// cli, err := client.NewEnvClient()
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.38"))
 	if err != nil {
-		panic(err)
+		log.Fatalf("Unable to initialize a new API client. - %v\n", err)
 	}
 
 	imageName := "local/go_faas:0.0.1"
@@ -140,11 +140,11 @@ func runDocker() {
 		"",
 	)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Unable to create container. - %v\n", err)
 	}
 
 	if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		panic(err)
+		log.Fatalf("Unable to start a container. - %v\n", err)
 	}
 	dockerIDvar = resp.ID
 	uploadResponse := fmt.Sprintf("[+] Docker ID: %s\n", dockerIDvar)
@@ -156,8 +156,7 @@ func makeMainDirectory() {
 	// by default, os.ModePerm = 0777
 	// if err := os.MkdirAll("/root/"+upFolder, os.ModePerm); err != nil {
 	if err := os.MkdirAll(upDir+"/"+upFolder, os.ModePerm); err != nil {
-		log.Println("[-] Unable to create the directory. - " + err.Error())
-		os.Exit(1)
+		log.Fatalf("[-] Unable to create the directory. - %v\n", err)
 	}
 }
 
@@ -175,11 +174,11 @@ func getRunningDockers(w http.ResponseWriter, r *http.Request) {
 	dckrs := make(map[string]Dinfo)
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.38"))
 	if err != nil {
-		panic(err)
+		log.Fatalf("Running docker client: %v", err)
 	}
 	containers, err := cli.ContainerList(context.Background(), types.ContainerListOptions{})
 	if err != nil {
-		panic(err)
+		log.Fatalf("Running docker container list: %v", err)
 	}
 	for _, container := range containers {
 		// fmt.Println(container.Names) // -> [/naughty_swirles]
@@ -202,7 +201,7 @@ func stopDocker(w http.ResponseWriter, r *http.Request) {
 
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.38"))
 	if err != nil {
-		panic(err)
+		log.Fatalf("Unable to initialize: %v", err)
 	}
 
 	if err := cli.ContainerStop(ctx, dockerID, nil); err != nil {
