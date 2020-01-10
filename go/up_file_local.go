@@ -38,11 +38,12 @@ https://github.com/aws/aws-sdk-go
 */
 
 const (
-	upFolder    = "uploadsGO"
-	servicePort = ":5000"
-	apiVersion  = "/api/v1"
-	hostPort    = "8000"
-	dockerPort  = "1111"
+	upFolder      = "uploadsGO"
+	servicePort   = ":5000"
+	apiVersion    = "/api/v1"
+	hostPort      = "8000"
+	dockerPort    = "1111"
+	maxUploadSize = 5 * 1024 * 1024
 )
 
 type Dinfo struct {
@@ -57,7 +58,6 @@ var dockerIDvar string
 
 func handleRequests(wg *sync.WaitGroup) {
 	logger := log.New(os.Stdout, "faas ", log.LstdFlags|log.Lshortfile)
-	logger.Println("Server is starting...")
 
 	r := mux.NewRouter()
 	myRouter := r.PathPrefix(apiVersion).Subrouter()
@@ -68,6 +68,8 @@ func handleRequests(wg *sync.WaitGroup) {
 	myRouter.Path("/stop/{id}").Methods("GET").HandlerFunc(stopDocker)
 	myRouter.Path("/dockers").Methods("GET").HandlerFunc(getRunningDockers)
 	myRouter.Path("/getout").Methods("GET").HandlerFunc(getOutput)
+
+	logger.Printf("Starting server on port %s", servicePort)
 
 	err := http.ListenAndServe(servicePort, myRouter)
 	if err != nil {
@@ -240,15 +242,21 @@ func getFiles(w http.ResponseWriter, r *http.Request) {
 
 // curl -X POST -F 'file=@x.txt' localhost:5000/api/v1/up
 func uploadFile(w http.ResponseWriter, r *http.Request) {
-	// maximum allowed payload to 5 megabytes (file size)
-	r.Body = http.MaxBytesReader(w, r.Body, 5*1024*1024)
+	// validate file size
+	// maximum allowed payload (file size) to 5 megabytes
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		log.Printf("[-] Error in ParseMultipartForm: %v\n", err)
+		renderError(w, "FILE_TOO_BIG", http.StatusBadRequest)
+		return
+	}
 	// fmt.Println(io.Copy(ioutil.Discard, r.Body))
 
+	// parse and validate file
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		log.Println("[-] Error in r.FormFile ", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "{'error': %s}\n", err)
+		log.Printf("[-] Error in FormFile: %v\n", err)
+		renderError(w, "INVALID_FILE", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
@@ -257,8 +265,10 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 
 	out, err := os.Create(filepath.Join(upDir+"/"+upFolder, t.Format("20060102150405-")+header.Filename))
 	if err != nil {
-		log.Printf("[-] Unable to create the file for writing. Check your write access privilege.\n", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		log.Printf("[-] Error in Create: %v\n", err)
+		// unable to create the file for writing - check your write access privileges
+		renderError(w, "CANT_CREATE_FILE_PRIVILEGES?", http.StatusInternalServerError)
+		return
 	}
 	// change permission to uploaded file(if not error when executing binary)
 	out.Chmod(0777)
@@ -267,8 +277,8 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 	// write the content from POST to the file
 	_, err = io.Copy(out, file)
 	if err != nil {
-		log.Println("[-] Error copying file.", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		log.Printf("[-] Error copying file: %v\n", err)
+		renderError(w, "FAILED_COPYING_FILE", http.StatusInternalServerError)
 		return
 	}
 
@@ -277,9 +287,10 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 	uploadResponse := fmt.Sprintf("[+] File uploaded successfully: %s\n", uploadFileFormat)
 	fmt.Fprintf(w, uploadResponse)
 
+	// check file type
 	stdout, stderr := exec.Command("grep", "Go", getEventName).Output()
 	if stderr != nil {
-		log.Println("[-] Verify your uploaded file", stderr)
+		log.Printf("[-] Verify your uploaded file: %v\n", stderr)
 		fmt.Fprintf(w, "[-] Verify your uploaded file\n")
 		return
 	}
@@ -297,14 +308,14 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 			uploadResponse := fmt.Sprintf("[+] Docker ID: %s\n", dockerIDvar)
 			fmt.Fprintf(w, uploadResponse)
 		} else {
-			ret_var := fmt.Sprintf("[-] It's not GO binary: %s" + goBinFile)
-			log.Println(ret_var)
-			fmt.Fprintf(w, ret_var)
+			retVar := fmt.Sprintf("[-] It's not GO binary: %s" + goBinFile)
+			log.Println(retVar)
+			fmt.Fprintf(w, retVar)
 		}
 	} else {
-		ret_var := fmt.Sprintf("[-] Stop the previous docker container, id: %s\n", dockerIDvar)
-		log.Println(ret_var)
-		fmt.Fprintf(w, ret_var)
+		retVar := fmt.Sprintf("[-] Stop the previous docker container, id: %s\n", dockerIDvar)
+		log.Println(retVar)
+		fmt.Fprintf(w, retVar)
 	}
 }
 
@@ -350,6 +361,11 @@ func FileWatcher(wg *sync.WaitGroup) {
 	}
 	<-done
 	defer wg.Done()
+}
+
+func renderError(w http.ResponseWriter, message string, statusCode int) {
+	w.WriteHeader(http.StatusBadRequest)
+	w.Write([]byte(message))
 }
 
 func main() {

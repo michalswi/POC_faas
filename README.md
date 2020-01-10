@@ -20,7 +20,8 @@ $ mv ~/go/src/github.com/docker/docker/vendor/github.com/docker/go-connections/n
 
 ### How to
 
-#### 'image/display_output.go'
+#### Test 'image/display_output.go'
+
 **APPNAME** should be available before 'display_output.go' run.  
 **APP** should be a binary file.  
 
@@ -28,27 +29,38 @@ $ mv ~/go/src/github.com/docker/docker/vendor/github.com/docker/go-connections/n
 $ ./run.sh
 
 #
-$ docker run -p 8000:8000 local/go_faas:0.0.1
+$ docker run --rm -p 8000:8000 local/go_faas:0.0.1
+executor 2020/01/10 08:00:53 display_output.go:25: Starting server on port 8000
+
 $ curl localhost:8000
 Something went wrong, your app/script was not uploaded..
 
 #
-$ docker run -v $(realpath image/bingo/test):/test -e APPNAME=test -p 8000:8000 local/go_faas:0.0.1
+$ docker run --rm -v $(realpath image/bingo/test):/test -e APPNAME=test -p 8000:8000 local/go_faas:0.0.1
+executor 2020/01/10 08:00:53 display_output.go:25: Starting server on port 8000
+
 $ curl localhost:8000
 Test Test test..
 
 $ ./delete.sh
 ```
 
-#### 'up_file_local.go'
+#### Test 'up_file_local.go'
 ```sh
+
+# step 1
 [tty1]
 $ ./run.sh
 $ ./up_file_local
-$ ./delete.sh
+
 
 [tty2] 
-<check APIs>
+<check APIs below>
+
+
+# step 2
+[tty1]
+$ ./delete.sh
 ```
 
 #### APIs
@@ -61,21 +73,11 @@ $ ./delete.sh
 - Get running dockers  
 `$ curl localhost:5000/api/v1/dockers`
 
-- Stop docker  
-`$ curl localhost:5000/api/v1/stop/<id>`
-
 - Check uploaded files  
 `$ curl localhost:5000/api/v1/getup/uploadsGO | jq`
 
 - Get output from running container  
 `$ curl localhost:5000/api/v1/getout`
 
-#### Examples
-```sh
-$ curl -X POST -F 'file=@examples/biny' localhost:5000/api/v1/up
-{'error': http: request body too large}
-
-$ curl -X POST -F 'file=@examples/file.txt' localhost:5000/api/v1/up
-[+] File uploaded successfully: 20190924111139-file.txt
-[-] Verify your uploaded file
-```
+- Stop docker  
+`$ curl localhost:5000/api/v1/stop/<id>`

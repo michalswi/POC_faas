@@ -22,7 +22,7 @@ func getEnv(key, defaultValue string) string {
 
 func main() {
 	logger := log.New(os.Stdout, "executor ", log.LstdFlags|log.Lshortfile)
-	logger.Println("Server is starting...")
+	logger.Printf("Starting server on port %s", servicePort)
 
 	rserver := http.NewServeMux()
 
